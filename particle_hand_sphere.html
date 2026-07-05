@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sphera — Particle Hand Sphere</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&family=Space+Mono&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: #08090b;
+    --fg: #ececea;
+    --muted: #7d8288;
+    --line: rgba(255,255,255,0.14);
+    --accent: #cfd6dc;
+  }
+  *{ box-sizing:border-box; }
+  html,body{
+    margin:0; padding:0; width:100%; height:100%;
+    background: radial-gradient(ellipse at 50% 30%, #101216 0%, #08090b 65%, #050506 100%);
+    overflow:hidden;
+    font-family:'Space Mono', monospace;
+    color:var(--fg);
+  }
+
+  #video{
+    position:fixed; inset:0;
+    width:100%; height:100%;
+    object-fit:cover;
+    transform:scaleX(-1);
+    opacity:0;
+    transition:opacity .6s ease;
+    pointer-events:none;
+  }
+  body.show-webcam #video{ opacity:0.5; }
+
+  #videoOverlay{
+    position:fixed; inset:0;
+    background: linear-gradient(180deg, rgba(8,9,11,0.55) 0%, rgba(8,9,11,0.25) 40%, rgba(8,9,11,0.75) 100%);
+    opacity:0;
+    transition:opacity .6s ease;
+    pointer-events:none;
+  }
+  body.show-webcam #videoOverlay{ opacity:1; }
+
+  #scene{
+    position:fixed; inset:0;
+    width:100%; height:100%;
+    display:block;
+  }
+
+  #ui{
+    position:fixed; top:0; left:0; right:0;
+    display:flex; justify-content:space-between; align-items:flex-start;
+    padding:34px 38px;
+    pointer-events:none;
+    z-index:10;
+  }
+
+  #titleBlock{ pointer-events:none; }
+
+  #title{
+    font-family:'Cormorant Garamond', serif;
+    font-weight:600;
+    font-size:2.6rem;
+    letter-spacing:0.03em;
+    margin:0;
+    color:var(--fg);
+  }
+  #subtitle{
+    font-family:'Cormorant Garamond', serif;
+    font-style:italic;
+    font-weight:500;
+    font-size:0.95rem;
+    color:var(--muted);
+    margin-top:2px;
+    letter-spacing:0.02em;
+  }
+
+  #status{
+    margin-top:16px;
+    font-size:0.68rem;
+    letter-spacing:0.08em;
+    text-transform:uppercase;
+    color:var(--muted);
+    display:flex;
+    align-items:center;
+    gap:8px;
+  }
+  #statusDot{
+    width:6px; height:6px; border-radius:50%;
+    background:#5a5f66;
+    transition:background .25s ease, box-shadow .25s ease;
+  }
+  #statusDot.live{
+    background:#c9d3d8;
+    box-shadow:0 0 8px 1px rgba(201,211,216,0.6);
+  }
+
+  #controls{
+    pointer-events:all;
+    display:flex; flex-direction:column; align-items:flex-end; gap:10px;
+  }
+
+  button#toggleBg{
+    background:transparent;
+    border:1px solid var(--line);
+    color:var(--fg);
+    font-family:'Space Mono', monospace;
+    font-size:0.68rem;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    padding:10px 16px;
+    cursor:pointer;
+    transition:all .2s ease;
+  }
+  button#toggleBg:hover{
+    background:rgba(255,255,255,0.06);
+    border-color:rgba(255,255,255,0.35);
+  }
+  button#toggleBg.on{
+    background:var(--fg);
+    color:#0a0a0b;
+    border-color:var(--fg);
+  }
+
+  #legend{
+    font-size:0.62rem;
+    letter-spacing:0.05em;
+    color:var(--muted);
+    text-align:right;
+    line-height:1.7;
+    text-transform:uppercase;
+  }
+  #legend span{ color:var(--accent); }
+
+  #chargeRing{
+    position:fixed;
+    top:0; left:0;
+    width:120px; height:120px;
+    margin-left:-60px; margin-top:-60px;
+    pointer-events:none;
+    opacity:0;
+    transition:opacity .25s ease;
+    z-index:9;
+  }
+  #chargeRing.active{ opacity:1; }
+  #chargeRing svg{ width:100%; height:100%; transform:rotate(-90deg); }
+  #chargeRing circle{
+    fill:none;
+    stroke-width:2;
+  }
+  #chargeRing .bg{ stroke: rgba(255,255,255,0.12); }
+  #chargeRing .fg{
+    stroke: #eef1f3;
+    stroke-linecap:round;
+    transition: stroke .2s ease;
+  }
+  #chargeRing.full .fg{ stroke:#ff5d4a; }
+
+  #hint{
+    position:fixed;
+    bottom:30px; left:50%;
+    transform:translateX(-50%);
+    font-size:0.66rem;
+    letter-spacing:0.08em;
+    text-transform:uppercase;
+    color:var(--muted);
+    opacity:0.7;
+    z-index:10;
+    text-align:center;
+    pointer-events:none;
+  }
+
+  @media (max-width: 640px){
+    #title{ font-size:1.9rem; }
+    #legend{ display:none; }
+    #ui{ padding:22px 22px; }
+  }
+</style>
+</head>
+<body>
+
+  <video id="video" autoplay playsinline muted></video>
+  <div id="videoOverlay"></div>
+  <canvas id="scene"></canvas>
+
+  <div id="ui">
+    <div id="titleBlock">
+      <h1 id="title">Sphera</h1>
+      <div id="subtitle">a particle form, held by hand</div>
+      <div id="status"><span id="statusDot"></span><span id="statusText">initializing camera…</span></div>
+    </div>
+    <div id="controls">
+      <button id="toggleBg">Show Webcam</button>
+      <div id="legend">
+        <div><span>1 hand</span> — move &amp; rotate</div>
+        <div><span>2 hands</span> — spread to grow, close to shrink</div>
+        <div><span>pinch + hold</span> — charge, release to burst</div>
+        <div><span>fingers</span> — change color</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="chargeRing">
+    <svg viewBox="0 0 120 120">
+      <circle class="bg" cx="60" cy="60" r="52"></circle>
+      <circle class="fg" id="chargeCircle" cx="60" cy="60" r="52" stroke-dasharray="326.7" stroke-dashoffset="326.7"></circle>
+    </svg>
+  </div>
+
+  <div id="hint">show one hand to the camera to begin</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+
+<script>
+(function(){
+
+  /* ---------------------------------------------------------------
+     THREE.JS SCENE SETUP
+  ----------------------------------------------------------------*/
+  const N = 3000;
+  const canvas = document.getElementById('scene');
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias:true, alpha:true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(50, window.innerWidth/window.innerHeight, 0.1, 100);
+  camera.position.z = 6.2;
+
+  function fibonacciSphere(n){
+    const arr = new Float32Array(n*3);
+    const offset = 2/n;
+    const increment = Math.PI * (3 - Math.sqrt(5));
+    for(let i=0;i<n;i++){
+      const y = ((i*offset) - 1) + (offset/2);
+      const r = Math.sqrt(Math.max(0,1 - y*y));
+      const phi = i * increment;
+      const x = Math.cos(phi) * r;
+      const z = Math.sin(phi) * r;
+      arr[i*3]   = x;
+      arr[i*3+1] = y;
+      arr[i*3+2] = z;
+    }
+    return arr;
+  }
+
+  const unitDirs = fibonacciSphere(N);
+  const positions = new Float32Array(N*3);
+  const velocities = new Float32Array(N*3);
+  const colors = new Float32Array(N*3);
+  const baseColor = new Float32Array(N*3);
+
+  let radius = 1.5;
+
+  for(let i=0;i<N;i++){
+    positions[i*3]   = unitDirs[i*3]   * radius;
+    positions[i*3+1] = unitDirs[i*3+1] * radius;
+    positions[i*3+2] = unitDirs[i*3+2] * radius;
+    colors[i*3]=0.75; colors[i*3+1]=0.78; colors[i*3+2]=0.82;
+    baseColor[i*3]=0.75; baseColor[i*3+1]=0.78; baseColor[i*3+2]=0.82;
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+  const material = new THREE.PointsMaterial({
+    size: 0.05,
+    vertexColors: true,
+    transparent: true,
+    opacity: 0.92,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    sizeAttenuation: true
+  });
+
+  const points = new THREE.Points(geometry, material);
+  scene.add(points);
+
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth/window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+
+  /* ---------------------------------------------------------------
+     STATE
+  ----------------------------------------------------------------*/
+  const COLOR_TABLE = [
+    [0.72,0.75,0.80], // 0 fingers - neutral silver
+    [0.25,0.85,0.95], // 1 - cyan
+    [0.35,0.92,0.48], // 2 - green
+    [0.96,0.86,0.28], // 3 - yellow
+    [0.95,0.38,0.86], // 4 - magenta
+    [0.98,0.28,0.32], // 5 - red
+  ];
+  let targetColor = COLOR_TABLE[0];
+
+  let targetRadius = 1.5;
+  const MIN_R = 0.6, MAX_R = 2.7;
+
+  let targetPos = new THREE.Vector3(0,0,0);
+  let rotVelX = 0, rotVelY = 0;
+  let prevHandX = null, prevHandY = null;
+
+  let handsVisible = 0;
+  let singleHand = null;   // {x,y,fingerCount,pinching}
+  let twoHandDist = null;
+
+  let isPinching = false;
+  let pinchStartTime = 0;
+  let chargeAmount = 0;
+  const PINCH_HOLD_MS = 1100;
+  const PINCH_THRESHOLD = 0.055;
+
+  let state = 'idle'; // idle | exploding | reforming
+  let explodeStart = 0;
+  const EXPLODE_DURATION = 850;
+
+  const chargeRingEl = document.getElementById('chargeRing');
+  const chargeCircle = document.getElementById('chargeCircle');
+  const CIRC = 2 * Math.PI * 52;
+  const statusDot = document.getElementById('statusDot');
+  const statusText = document.getElementById('statusText');
+  const hintEl = document.getElementById('hint');
+
+  function lerp(a,b,t){ return a + (b-a)*t; }
+  function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
+  function dist2D(a,b){ return Math.hypot(a.x-b.x, a.y-b.y); }
+
+  function countFingers(lm){
+    const wrist = lm[0];
+    const pairs = [
+      [4,2],   // thumb tip / thumb mcp
+      [8,6],   // index tip / pip
+      [12,10], // middle
+      [16,14], // ring
+      [20,18], // pinky
+    ];
+    let count = 0;
+    for(const [tipIdx, refIdx] of pairs){
+      const dTip = dist2D(lm[tipIdx], wrist);
+      const dRef = dist2D(lm[refIdx], wrist);
+      if(dTip > dRef * 1.12) count++;
+    }
+    return count;
+  }
+
+  function triggerExplosion(){
+    state = 'exploding';
+    explodeStart = performance.now();
+    for(let i=0;i<N;i++){
+      const dirX = unitDirs[i*3] + (Math.random()-0.5)*0.6;
+      const dirY = unitDirs[i*3+1] + (Math.random()-0.5)*0.6;
+      const dirZ = unitDirs[i*3+2] + (Math.random()-0.5)*0.6;
+      const speed = 0.09 + Math.random()*0.16;
+      velocities[i*3]   = dirX * speed;
+      velocities[i*3+1] = dirY * speed;
+      velocities[i*3+2] = dirZ * speed;
+    }
+    chargeRingEl.classList.remove('active','full');
+  }
+
+  /* ---------------------------------------------------------------
+     MEDIAPIPE HANDS
+  ----------------------------------------------------------------*/
+  const videoEl = document.getElementById('video');
+
+  const hands = new Hands({
+    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+  });
+  hands.setOptions({
+    maxNumHands: 2,
+    modelComplexity: 1,
+    minDetectionConfidence: 0.7,
+    minTrackingConfidence: 0.6
+  });
+  hands.onResults(onResults);
+
+  function onResults(results){
+    const list = results.multiHandLandmarks || [];
+    handsVisible = list.length;
+
+    if(handsVisible === 0){
+      singleHand = null;
+      twoHandDist = null;
+      isPinching = false;
+      chargeAmount = 0;
+      chargeRingEl.classList.remove('active','full');
+      statusDot.classList.remove('live');
+      statusText.textContent = 'no hand detected';
+      return;
+    }
+
+    statusDot.classList.add('live');
+    hintEl.style.opacity = '0';
+
+    if(handsVisible === 1){
+      const lm = list[0];
+      const palm = lm[9]; // middle finger MCP as stable center
+      const x = 1 - palm.x; // mirror for natural interaction
+      const y = palm.y;
+      const fingerCount = countFingers(lm);
+      const thumbTip = lm[4], indexTip = lm[8];
+      const pinchDist = dist2D(thumbTip, indexTip);
+      const pinching = pinchDist < PINCH_THRESHOLD;
+
+      singleHand = { x, y, fingerCount, pinching };
+      twoHandDist = null;
+
+      statusText.textContent = `1 hand · ${fingerCount} finger${fingerCount===1?'':'s'}${pinching ? ' · pinching' : ''}`;
+    } else {
+      const centerA = list[0][9];
+      const centerB = list[1][9];
+      const d = Math.hypot(
+        (1-centerA.x) - (1-centerB.x),
+        centerA.y - centerB.y
+      );
+      twoHandDist = d;
+      singleHand = null;
+      isPinching = false;
+      chargeAmount = 0;
+      chargeRingEl.classList.remove('active','full');
+      statusText.textContent = `2 hands · spread ${d.toFixed(2)}`;
+    }
+  }
+
+  let mpCamera = null;
+  try{
+    mpCamera = new Camera(videoEl, {
+      onFrame: async () => { await hands.send({ image: videoEl }); },
+      width: 640,
+      height: 480
+    });
+    mpCamera.start().catch(err => {
+      statusText.textContent = 'camera access denied';
+    });
+  }catch(e){
+    statusText.textContent = 'camera unavailable';
+  }
+
+  /* ---------------------------------------------------------------
+     WEBCAM BACKGROUND TOGGLE
+  ----------------------------------------------------------------*/
+  const toggleBtn = document.getElementById('toggleBg');
+  toggleBtn.addEventListener('click', () => {
+    document.body.classList.toggle('show-webcam');
+    toggleBtn.classList.toggle('on');
+    toggleBtn.textContent = document.body.classList.contains('show-webcam') ? 'Hide Webcam' : 'Show Webcam';
+  });
+
+  /* ---------------------------------------------------------------
+     MAIN ANIMATION LOOP
+  ----------------------------------------------------------------*/
+  function updateChargeRingPosition(){
+    if(!singleHand) return;
+    const screenX = singleHand.x * window.innerWidth;
+    const screenY = singleHand.y * window.innerHeight;
+    chargeRingEl.style.transform = `translate(${screenX}px, ${screenY}px)`;
+  }
+
+  function animate(){
+    requestAnimationFrame(animate);
+    const now = performance.now();
+
+    // ---- Two-hand scaling ----
+    if(twoHandDist !== null){
+      const t = clamp((twoHandDist - 0.12) / (0.75 - 0.12), 0, 1);
+      targetRadius = lerp(MIN_R, MAX_R, t);
+    }
+    radius = lerp(radius, targetRadius, 0.12);
+
+    // ---- Single-hand move + rotate + pinch + color ----
+    if(singleHand){
+      const nx = (singleHand.x - 0.5) * 6.4;
+      const ny = -(singleHand.y - 0.5) * 4.2;
+      targetPos.set(nx, ny, 0);
+
+      if(prevHandX !== null){
+        const dx = singleHand.x - prevHandX;
+        const dy = singleHand.y - prevHandY;
+        rotVelY += dx * 4.2;
+        rotVelX += dy * 4.2;
+      }
+      prevHandX = singleHand.x;
+      prevHandY = singleHand.y;
+
+      targetColor = COLOR_TABLE[clamp(singleHand.fingerCount,0,5)];
+
+      // pinch / charge logic
+      if(singleHand.pinching){
+        if(!isPinching){
+          isPinching = true;
+          pinchStartTime = now;
+        }
+        chargeAmount = clamp((now - pinchStartTime) / PINCH_HOLD_MS, 0, 1);
+        chargeRingEl.classList.add('active');
+        chargeRingEl.classList.toggle('full', chargeAmount >= 1);
+        chargeCircle.setAttribute('stroke-dashoffset', (CIRC * (1 - chargeAmount)).toFixed(2));
+        updateChargeRingPosition();
+      } else {
+        if(isPinching){
+          if(chargeAmount >= 1 && state === 'idle'){
+            triggerExplosion();
+          }
+          isPinching = false;
+        }
+        chargeAmount = 0;
+        chargeRingEl.classList.remove('active','full');
+      }
+    } else {
+      prevHandX = null; prevHandY = null;
+      if(isPinching){ isPinching = false; chargeAmount = 0; chargeRingEl.classList.remove('active','full'); }
+    }
+
+    // inertia + ambient rotation
+    rotVelX *= 0.9;
+    rotVelY *= 0.9;
+    points.rotation.x += rotVelX * 0.06;
+    points.rotation.y += rotVelY * 0.06 + 0.0016;
+
+    points.position.lerp(targetPos, 0.1);
+
+    // ---- Particle physics ----
+    const posAttr = geometry.attributes.position.array;
+
+    if(state === 'exploding'){
+      for(let i=0;i<N;i++){
+        posAttr[i*3]   += velocities[i*3];
+        posAttr[i*3+1] += velocities[i*3+1];
+        posAttr[i*3+2] += velocities[i*3+2];
+        velocities[i*3]   *= 0.988;
+        velocities[i*3+1] *= 0.988;
+        velocities[i*3+2] *= 0.988;
+      }
+      if(now - explodeStart > EXPLODE_DURATION){
+        state = 'reforming';
+      }
+    } else if(state === 'reforming'){
+      let settled = true;
+      for(let i=0;i<N;i++){
+        const bx = unitDirs[i*3]   * radius;
+        const by = unitDirs[i*3+1] * radius;
+        const bz = unitDirs[i*3+2] * radius;
+        posAttr[i*3]   += (bx - posAttr[i*3])   * 0.055;
+        posAttr[i*3+1] += (by - posAttr[i*3+1]) * 0.055;
+        posAttr[i*3+2] += (bz - posAttr[i*3+2]) * 0.055;
+        if(Math.abs(bx - posAttr[i*3]) > 0.01) settled = false;
+      }
+      if(settled) state = 'idle';
+    } else {
+      for(let i=0;i<N;i++){
+        const bx = unitDirs[i*3]   * radius;
+        const by = unitDirs[i*3+1] * radius;
+        const bz = unitDirs[i*3+2] * radius;
+        posAttr[i*3]   += (bx - posAttr[i*3])   * 0.15;
+        posAttr[i*3+1] += (by - posAttr[i*3+1]) * 0.15;
+        posAttr[i*3+2] += (bz - posAttr[i*3+2]) * 0.15;
+      }
+    }
+    geometry.attributes.position.needsUpdate = true;
+
+    // ---- Color lerp ----
+    const colAttr = geometry.attributes.color.array;
+    for(let i=0;i<N;i++){
+      colAttr[i*3]   = lerp(colAttr[i*3],   targetColor[0], 0.06);
+      colAttr[i*3+1] = lerp(colAttr[i*3+1], targetColor[1], 0.06);
+      colAttr[i*3+2] = lerp(colAttr[i*3+2], targetColor[2], 0.06);
+    }
+    geometry.attributes.color.needsUpdate = true;
+
+    renderer.render(scene, camera);
+  }
+
+  animate();
+
+})();
+</script>
+</body>
+</html>
